@@ -132,10 +132,6 @@
                   <img src="<?php echo base_url()?>assets/images/brand/cu_logo_black.png" alt="" width="70%" height="100%" class="mb-4 logo-dark">
                 </a>
                 <h5 class="mb-1">Welcome to CU Facilities Reservation System</h5>
-                <p class="mb-0">
-                  Don’t have an account yet?
-                  <a class='text-info' href="<?php echo base_url()?>auth/signup">Signup here</a>
-                </p>
               </div>
             </div>
           </div>

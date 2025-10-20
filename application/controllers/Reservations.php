@@ -19,14 +19,39 @@ class Reservations extends Admin_Controller
 
         
 	}
+	
+	/**
+	 * Check if user owns a reservation or is admin
+	 */
+	private function canModifyReservation($reservation_id)
+	{
+		$user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// Admin can modify any reservation
+		if ($is_admin) {
+			return true;
+		}
+		
+		// Non-admin can only modify their own reservations
+		$reservation = $this->model_reservations->getReservationData($reservation_id);
+		return ($reservation && $reservation['created_by'] == $user_id);
+	}
 
   
     public function index()
     {
-
         $user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// For non-admin users, show only their own reservations
+		$filter_user_id = $is_admin ? null : $user_id;
+		
         $this->data['user_data'] = $this->model_users->getUserData($user_id);
-        $this->data['reservations'] = $this->model_reservations->getAllActiveReservations();
+        $this->data['reservations'] = $this->model_reservations->getAllActiveReservations($filter_user_id);
+        $this->data['is_admin'] = $is_admin;
 
         $this->render_template('reservations/index', $this->data);  
     }
@@ -36,7 +61,14 @@ class Reservations extends Admin_Controller
      */
     public function fetchAllReservations()
     {
-        $reservations = $this->model_reservations->getAllActiveReservations();
+        $user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// For non-admin users, show only their own reservations
+		$filter_user_id = $is_admin ? null : $user_id;
+		
+        $reservations = $this->model_reservations->getAllActiveReservations($filter_user_id);
         echo json_encode(array('success' => true, 'data' => $reservations));
     }
     
@@ -45,7 +77,14 @@ class Reservations extends Admin_Controller
      */
     public function fetchAllArchivedReservations()
     {
-        $reservations = $this->model_reservations->getAllArchivedReservations();
+        $user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// For non-admin users, show only their own reservations
+		$filter_user_id = $is_admin ? null : $user_id;
+		
+        $reservations = $this->model_reservations->getAllArchivedReservations($filter_user_id);
         echo json_encode(array('success' => true, 'data' => $reservations));
     }
     
@@ -70,6 +109,16 @@ class Reservations extends Admin_Controller
     {
         if($this->input->server('REQUEST_METHOD') !== 'POST') {
             echo json_encode(array('success' => false, 'message' => 'Invalid request method'));
+            return;
+        }
+        
+        // Only admins can update reservations
+        $user_id = $this->session->userdata('id');
+        $user_affiliation = $this->session->userdata('affiliation');
+        $is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+        
+        if (!$is_admin) {
+            echo json_encode(array('success' => false, 'message' => 'Access denied. Only administrators can update reservations.'));
             return;
         }
         
@@ -152,7 +201,14 @@ class Reservations extends Admin_Controller
         }
         
         $archived_count = 0;
+        $permission_denied_count = 0;
         foreach($ids as $id) {
+            // Check if user can modify this reservation
+            if (!$this->canModifyReservation($id)) {
+                $permission_denied_count++;
+                continue;
+            }
+            
             $result = $this->model_reservations->archive($id);
             if($result) {
                 $archived_count++;
@@ -183,9 +239,16 @@ class Reservations extends Admin_Controller
     public function archived()
     {
         $user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// For non-admin users, show only their own reservations
+		$filter_user_id = $is_admin ? null : $user_id;
+		
         $this->data['user_data'] = $this->model_users->getUserData($user_id);
         $this->data['page_title'] = 'Archived Reservations';
-        $this->data['reservations'] = $this->model_reservations->getAllArchivedReservations();
+        $this->data['reservations'] = $this->model_reservations->getAllArchivedReservations($filter_user_id);
+        $this->data['is_admin'] = $is_admin;
 
         $this->render_template('reservations/archived', $this->data);  
     }
@@ -213,7 +276,14 @@ class Reservations extends Admin_Controller
         }
         
         $restored_count = 0;
+        $permission_denied_count = 0;
         foreach($ids as $id) {
+            // Check if user can modify this reservation
+            if (!$this->canModifyReservation($id)) {
+                $permission_denied_count++;
+                continue;
+            }
+            
             $result = $this->model_reservations->restore($id);
             if($result) {
                 $restored_count++;
@@ -235,6 +305,61 @@ class Reservations extends Admin_Controller
             ));
         } else {
             echo json_encode(array('success' => false, 'message' => 'Failed to restore reservations'));
+        }
+    }
+    
+    public function deleteReservationPermanently()
+    {
+        if($this->input->server('REQUEST_METHOD') !== 'POST') {
+            echo json_encode(array('success' => false, 'message' => 'Invalid request method'));
+            return;
+        }
+        
+        // Only admins can permanently delete reservations
+        $user_id = $this->session->userdata('id');
+        $user_affiliation = $this->session->userdata('affiliation');
+        $is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+        
+        if (!$is_admin) {
+            echo json_encode(array('success' => false, 'message' => 'Access denied. Only administrators can permanently delete reservations.'));
+            return;
+        }
+        
+        $ids = $this->input->post('ids');
+        
+        // If ids is a JSON string, decode it
+        if(is_string($ids)) {
+            $ids = json_decode($ids, true);
+        }
+        
+        if(!$ids || !is_array($ids)) {
+            echo json_encode(array('success' => false, 'message' => 'No reservations selected'));
+            return;
+        }
+        
+        $deleted_count = 0;
+        foreach($ids as $id) {
+            $result = $this->model_reservations->deletePermanently($id);
+            if($result) {
+                $deleted_count++;
+                
+                // Log the activity
+                $this->logs->logActivity(
+                    'delete', 
+                    'Reservations', 
+                    'Permanently deleted reservation ' . $id,
+                    true
+                );
+            }
+        }
+        
+        if($deleted_count > 0) {
+            echo json_encode(array(
+                'success' => true, 
+                'message' => $deleted_count . ' reservation(s) permanently deleted'
+            ));
+        } else {
+            echo json_encode(array('success' => false, 'message' => 'Failed to delete reservations'));
         }
     }
     

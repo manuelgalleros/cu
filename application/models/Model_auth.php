@@ -24,7 +24,6 @@ class Model_auth extends CI_Model
 
 	/* 
 		This function checks if the email and password matches with the database
-		Also checks if user has Admin affiliation
 	*/
 	public function login($email, $password) {
 		if($email && $password) {
@@ -33,11 +32,6 @@ class Model_auth extends CI_Model
 
 			if($query->num_rows() == 1) {
 				$result = $query->row_array();
-
-				// Check if user has Admin affiliation
-				if($result['affiliation'] !== 'Admin') {
-					return false;
-				}
 
 				$hash_password = password_verify($password, $result['password']);
 				if($hash_password === true) {
@@ -79,11 +73,7 @@ class Model_auth extends CI_Model
 			
 			if($query->num_rows() == 1) {
 				$result = $query->row_array();
-				
-				// Check if user has Admin affiliation
-				if($result['affiliation'] === 'Admin') {
-					return $result;
-				}
+				return $result;
 			}
 		}
 		return false;

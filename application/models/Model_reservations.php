@@ -246,28 +246,41 @@ class Model_reservations extends CI_Model
     /**
      * Get all active reservations (not archived)
      */
-    public function getAllActiveReservations()
+    public function getAllActiveReservations($user_id = null)
     {
         $sql = "SELECT r.*, r.rejection_reason, u.firstname, u.lastname 
                 FROM reservations r 
                 LEFT JOIN users u ON r.created_by = u.id 
-                WHERE r.status != 'archived'
-                ORDER BY r.created_at DESC";
+                WHERE r.status != 'archived'";
+        
+        // Filter by user_id if provided (for non-admin users)
+        if ($user_id !== null) {
+            $sql .= " AND r.created_by = " . intval($user_id);
+        }
+        
+        $sql .= " ORDER BY r.created_at DESC";
         
         $query = $this->db->query($sql);
         return $query->result_array();
     }
     
+    
     /**
      * Get all archived reservations
      */
-    public function getAllArchivedReservations()
+    public function getAllArchivedReservations($user_id = null)
     {
         $sql = "SELECT r.*, r.rejection_reason, u.firstname, u.lastname 
                 FROM reservations r 
                 LEFT JOIN users u ON r.created_by = u.id 
-                WHERE r.status = 'archived'
-                ORDER BY r.updated_at DESC";
+                WHERE r.status = 'archived'";
+        
+        // Filter by user_id if provided (for non-admin users)
+        if ($user_id !== null) {
+            $sql .= " AND r.created_by = " . intval($user_id);
+        }
+        
+        $sql .= " ORDER BY r.updated_at DESC";
         
         $query = $this->db->query($sql);
         return $query->result_array();
@@ -300,6 +313,50 @@ class Model_reservations extends CI_Model
             return ($update == true) ? true : false;
         }
         return false;
+    }
+    
+    /**
+     * Permanently delete a reservation by moving it to deleted_reservations table
+     * @param string $id Reservation ID
+     * @return bool Success status
+     */
+    public function deletePermanently($id)
+    {
+        if(!$id) {
+            return false;
+        }
+        
+        // Start transaction
+        $this->db->trans_start();
+        
+        // Get the reservation data
+        $this->db->where('id', $id);
+        $this->db->where('status', 'archived'); // Only allow deletion of archived reservations
+        $reservation = $this->db->get('reservations')->row_array();
+        
+        if(!$reservation) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        
+        // Get current user ID for deleted_by field
+        $deleted_by = $this->session->userdata('id');
+        
+        // Add deletion metadata
+        $reservation['deleted_by'] = $deleted_by;
+        $reservation['deleted_at'] = date('Y-m-d H:i:s');
+        
+        // Insert into deleted_reservations table
+        $this->db->insert('deleted_reservations', $reservation);
+        
+        // Delete from reservations table
+        $this->db->where('id', $id);
+        $this->db->delete('reservations');
+        
+        // Complete transaction
+        $this->db->trans_complete();
+        
+        return $this->db->trans_status();
     }
     
     /**
@@ -421,6 +478,13 @@ class Model_reservations extends CI_Model
         $query = $this->db->query($sql);
         return $query->result_array();
     }
+
+    public function getAllDeletedReservations()
+    {
+        $sql = "SELECT * FROM deleted_reservations ORDER BY id DESC";
+        $query = $this->db->query($sql);
+        return $query->result_array();
+    }
     
     /**
      * Get confirmed reservations for today and upcoming
@@ -447,5 +511,7 @@ class Model_reservations extends CI_Model
         $query = $this->db->query($sql, array($limit));
         return $query->result_array();
     }
+
+    
 }
 

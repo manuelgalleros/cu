@@ -41,6 +41,7 @@
                                   View
                                 </a>
                               </li>
+                              <?php if ($is_admin): ?>
                               <li>
                                 <a class="dropdown-item" href="#!" id="updateAction">
                                   <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-edit me-2" width="16" height="16" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -52,6 +53,8 @@
                                   Update
                                 </a>
                               </li>
+                              <?php endif; ?>
+                            
                               <li>
                                 <a class="dropdown-item" href="#!" id="archiveAction">
                                   <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-archive me-2" width="16" height="16" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">

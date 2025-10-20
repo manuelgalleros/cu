@@ -153,6 +153,72 @@ class Model_users extends CI_Model
 		$query = $this->db->get('users');
 		return $query->result_array();
 	}
+
+
+	/**
+     * Ensure a BEFORE DELETE trigger exists to move deleted users into deleted_users
+     */
+    public function ensureUserDeletionTrigger()
+    {
+        $trigger_name = 'users_before_delete_to_deleted_users';
+        // Check if trigger exists
+        $exists = $this->db->query(
+            "SELECT COUNT(1) AS cnt FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = ?",
+            array($trigger_name)
+        )->row_array();
+        if (!empty($exists) && intval($exists['cnt']) > 0) {
+            return true;
+        }
+
+        // Get columns
+        $cols_users = $this->db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' ORDER BY ORDINAL_POSITION"
+        )->result_array();
+        $cols_deleted = $this->db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'deleted_users' ORDER BY ORDINAL_POSITION"
+        )->result_array();
+
+        $usersColumns = array_map(function($r){ return $r['COLUMN_NAME']; }, $cols_users);
+        $deletedColumns = array_map(function($r){ return $r['COLUMN_NAME']; }, $cols_deleted);
+
+        $common = array_values(array_intersect($usersColumns, $deletedColumns));
+        $hasDeletedAt = in_array('deleted_at', $deletedColumns) && !in_array('deleted_at', $usersColumns);
+
+        if (empty($common) && !$hasDeletedAt) {
+            return false;
+        }
+
+        $columnsSql = '`' . implode('`, `', $common) . '`';
+        $valuesSqlParts = array();
+        foreach ($common as $col) {
+            $valuesSqlParts[] = 'OLD.`' . $col . '`';
+        }
+        if ($hasDeletedAt) {
+            $columnsSql .= (empty($common) ? '' : ', ') . '`deleted_at`';
+            $valuesSqlParts[] = 'NOW()';
+        }
+        $valuesSql = implode(', ', $valuesSqlParts);
+
+        $create_sql = "CREATE TRIGGER `{$trigger_name}` BEFORE DELETE ON `users` FOR EACH ROW BEGIN INSERT INTO `deleted_users` ({$columnsSql}) VALUES ({$valuesSql}); END";
+        try {
+            $this->db->query($create_sql);
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+	/**
+     * Get all deleted users from deleted_users
+     */
+    public function getAllDeletedUsers()
+    {
+        $sql = "SELECT * FROM deleted_users ORDER BY 
+                CASE WHEN COLUMN_NAME('deleted_users','deleted_at') IS NOT NULL THEN deleted_at END DESC, id DESC";
+        // Fallback simple query if the above is not supported
+        $query = $this->db->query("SELECT * FROM deleted_users ORDER BY id DESC");
+        return $query->result_array();
+    }
 	
 	/**
 	 * Get total number of users (for pagination)

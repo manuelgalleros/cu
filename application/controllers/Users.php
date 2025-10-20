@@ -39,11 +39,82 @@ class Users extends Admin_Controller
         $this->data['user_data'] = $this->model_users->getUserData($user_id);
         
         // Add group data for the select dropdowns
-        $group_data = $this->model_groups->getGroupData();
-        $this->data['group_data'] = $group_data;
+        // Groups removed; affiliation serves as group
 
 		$this->render_template('users/index', $this->data);
 	}
+
+    /**
+     * Edit user grants/permissions via checklist (simple per-user custom group)
+     */
+    public function permissions($id = null)
+    {
+        if(!in_array('updateUser', $this->permission)) {
+            redirect('dashboard', 'refresh');
+        }
+
+        if(!$id) { redirect('users', 'refresh'); }
+
+        // Load user and current group
+        $user = $this->model_users->getUserData($id);
+        if(!$user) { redirect('users', 'refresh'); }
+        $user_group = $this->model_users->getUserGroup($id);
+
+        if($this->input->server('REQUEST_METHOD') === 'POST') {
+            $selected = $this->input->post('permissions');
+            if(!is_array($selected)) { $selected = array(); }
+
+            // Serialize selected permissions
+            $serialized = serialize(array_values($selected));
+
+            // Upsert a custom group for this user
+            $custom_name = 'Custom-' . $id;
+
+            // Find existing custom group
+            $existing = $this->db->get_where('groups', array('group_name' => $custom_name))->row_array();
+            if($existing) {
+                $this->db->where('id', $existing['id']);
+                $this->db->update('groups', array('permission' => $serialized));
+                $custom_group_id = $existing['id'];
+            } else {
+                $this->db->insert('groups', array('group_name' => $custom_name, 'permission' => $serialized));
+                $custom_group_id = $this->db->insert_id();
+            }
+
+            // Assign user to this custom group (upsert in user_group)
+            $this->db->where('user_id', $id);
+            $this->db->update('user_group', array('group_id' => $custom_group_id));
+            if ($this->db->affected_rows() === 0) {
+                $this->db->insert('user_group', array('user_id' => $id, 'group_id' => $custom_group_id));
+            }
+
+            $this->logs->logActivity('update', 'Users', 'Updated permissions for user ID ' . $id, true);
+            $this->session->set_flashdata('success', 'Permissions updated');
+            redirect('users', 'refresh');
+            return;
+        }
+
+        // Fixed, simple permission set for users
+        $all_permissions = array('approve', 'delete', 'createReservation');
+
+        // Current permissions from user's group
+        $current_permissions = array();
+        if($user_group && isset($user_group['group_id'])) {
+            $grp = $this->model_groups->getGroupData($user_group['group_id']);
+            if($grp && isset($grp['permission'])) {
+                $decoded = @unserialize($grp['permission']);
+                if(is_array($decoded)) { $current_permissions = $decoded; }
+            }
+        }
+
+        $this->data['user'] = $user;
+        $this->data['all_permissions'] = $all_permissions;
+        $this->data['current_permissions'] = $current_permissions;
+        $user_id = $this->session->userdata('id');
+        $this->data['user_data'] = $this->model_users->getUserData($user_id);
+
+        $this->render_template('users/edit-permissions', $this->data);
+    }
 
 	public function create()
 	{
@@ -51,11 +122,10 @@ class Users extends Admin_Controller
 			redirect('dashboard', 'refresh');
 		}
 
-		$this->form_validation->set_rules('username', 'Username', 'trim|required|min_length[5]|max_length[12]|is_unique[users.username]');
-		$this->form_validation->set_rules('email', 'Email', 'trim|required|is_unique[users.email]|valid_email');
+        $this->form_validation->set_rules('email', 'Email', 'trim|required|is_unique[users.email]|valid_email');
 		$this->form_validation->set_rules('password', 'Password', 'trim|required|min_length[8]');
 		$this->form_validation->set_rules('fname', 'First name', 'trim|required');
-		$this->form_validation->set_rules('gender', 'Gender', 'trim|required');
+        $this->form_validation->set_rules('affiliation', 'Affiliation', 'trim|required');
 
         if ($this->form_validation->run() == TRUE) {
             // true case
@@ -63,9 +133,8 @@ class Users extends Admin_Controller
             
             // Log debug information about the submission
             log_message('debug', 'User create - form validation passed');
-            log_message('debug', 'User create - username: ' . $this->input->post('username'));
             log_message('debug', 'User create - email: ' . $this->input->post('email'));
-            log_message('debug', 'User create - groups: ' . json_encode($this->input->post('groups')));
+            log_message('debug', 'User create - affiliation: ' . $this->input->post('affiliation'));
             
             // Handle image upload
             $profile_image = 'default.jpg'; // Default image
@@ -75,7 +144,7 @@ class Users extends Admin_Controller
                 
                 // Create unique filename using username and timestamp
                 $unique_filename = 'user_' . 
-                                 preg_replace('/[^A-Za-z0-9]/', '', $this->input->post('username')) . 
+                                 preg_replace('/[^A-Za-z0-9]/', '', $this->input->post('email')) . 
                                  '_' . 
                                  time() . 
                                  '_' . 
@@ -106,23 +175,24 @@ class Users extends Admin_Controller
                 }
             }
             
-        	$data = array(
-        		'username' => $this->input->post('username'),
-        		'password' => $password,
-        		'email' => $this->input->post('email'),
-        		'firstname' => $this->input->post('fname'),
-        		'lastname' => $this->input->post('lname'),
-        		'phone' => $this->input->post('phone'),
-        		'gender' => $this->input->post('gender'),
-                'profile_image' => $profile_image
-        	);
+            	$data = array(
+            		'password' => $password,
+            		'email' => $this->input->post('email'),
+            		'firstname' => $this->input->post('fname'),
+            		'lastname' => $this->input->post('lname'),
+            		'mobile_number' => $this->input->post('mobile_number'),
+            		'affiliation' => $this->input->post('affiliation'),
+                    'profile_image' => $profile_image
+            	);
 
             // Log the data being sent to the model
             log_message('debug', 'User create - data being sent to model: ' . json_encode($data));
-            log_message('debug', 'User create - groups being sent to model: ' . json_encode($this->input->post('groups')));
+            
+            // Set default group_id (3 = Cashier group by default)
+            $default_group_id = 3;
             
             try {
-                $create = $this->model_users->create($data, $this->input->post('groups'));
+                $create = $this->model_users->create($data, $default_group_id);
                 
                 if($create == true) {
                     // Log successful user creation
@@ -130,24 +200,24 @@ class Users extends Admin_Controller
                     $this->logs->logActivity(
                         'create',
                         'Users',
-                        'Created new user: ' . $data['username'] . ' (' . $data['email'] . ')',
+                        'Created new user: ' . $data['firstname'] . ' ' . $data['lastname'] . ' (' . $data['email'] . ')',
                         true
                     );
                     
                     if($this->input->is_ajax_request()) {
                         echo json_encode([
                             'success' => true, 
-                            'message' => 'Successfully created user "' . $this->input->post('username') . '"',
-                            'redirect' => base_url('users/')
+                            'message' => 'User created successfully!',
+                            'redirect' => base_url('users')
                         ]);
                         return;
                     }
-                    $this->session->set_flashdata('success', 'Successfully created');
-                    redirect('users/', 'refresh');
+                    $this->session->set_flashdata('success', 'User created successfully!');
+                    redirect('users', 'refresh');
                 }
                 else {
                     // If user creation fails, delete the uploaded image
-                    if($profile_image != 'default.jpg') {
+                    if($profile_image != 'default.jpg' && file_exists('./assets/images/users/' . $profile_image)) {
                         unlink('./assets/images/users/' . $profile_image);
                     }
                     
@@ -156,7 +226,7 @@ class Users extends Admin_Controller
                     $this->logs->logActivity(
                         'create',
                         'Users',
-                        'Failed to create user: ' . $data['username'] . ' (' . $data['email'] . ')',
+                        'Failed to create user: ' . $data['firstname'] . ' ' . $data['lastname'] . ' (' . $data['email'] . ')',
                         false
                     );
                     
@@ -164,7 +234,7 @@ class Users extends Admin_Controller
                         echo json_encode(['success' => false, 'errors' => 'Error occurred while creating user']);
                         return;
                     }
-                    $this->session->set_flashdata('error', 'Error occurred!!');
+                    $this->session->set_flashdata('error', 'Error occurred while creating user. Please try again.');
                     redirect('users/create', 'refresh');
                 }
             } catch (Exception $e) {
@@ -178,15 +248,15 @@ class Users extends Admin_Controller
                 $this->logs->logActivity(
                     'create',
                     'Users',
-                    'Exception while creating user: ' . $data['username'] . ' - ' . $e->getMessage(),
+                    'Exception while creating user: ' . $data['firstname'] . ' ' . $data['lastname'] . ' - ' . $e->getMessage(),
                     false
                 );
                 
                 if($this->input->is_ajax_request()) {
-                    echo json_encode(['success' => false, 'errors' => 'Exception occurred: ' . $e->getMessage()]);
+                    echo json_encode(['success' => false, 'errors' => 'Error: ' . $e->getMessage()]);
                     return;
                 }
-                $this->session->set_flashdata('error', 'Exception occurred: ' . $e->getMessage());
+                $this->session->set_flashdata('error', 'Error: ' . $e->getMessage());
                 redirect('users/create', 'refresh');
             }
         }
@@ -548,7 +618,11 @@ class Users extends Admin_Controller
 			redirect('dashboard', 'refresh');
 		}
 
-		if($id) {
+        if($id) {
+            // Ensure trigger exists before hard delete so record is copied
+            if (method_exists($this->model_users, 'ensureUserDeletionTrigger')) {
+                $this->model_users->ensureUserDeletionTrigger();
+            }
 			if($this->input->post('confirm')) {
 				// Get user data to delete profile image if needed
 				$user_data = $this->model_users->getUserData($id);
@@ -563,7 +637,7 @@ class Users extends Admin_Controller
 						}
 					}
 					
-					// Log successful user deletion
+                    // Log successful user deletion
 					$this->logs->logActivity(
 						'delete',
 						'Users',
@@ -571,12 +645,14 @@ class Users extends Admin_Controller
 						true
 					);
 					
-					if($this->input->is_ajax_request()) {
-						echo json_encode(['success' => true, 'message' => 'User successfully deleted']);
-						return;
-					}
-					$this->session->set_flashdata('success', 'Successfully removed');
-					redirect('users/', 'refresh');
+                    if($this->input->is_ajax_request()) {
+                        // Set flash so the redirected page can show success once
+                        $this->session->set_flashdata('success', 'You have successfully deleted the user');
+                        echo json_encode(['success' => true, 'message' => 'You have successfully deleted the user']);
+                        return;
+                    }
+                    $this->session->set_flashdata('success', 'You have successfully deleted the user');
+                    redirect('users', 'refresh');
 				}
 				else {
 					// Log failed user deletion
@@ -782,6 +858,64 @@ class Users extends Admin_Controller
 
 				$this->render_template('users/setting', $this->data);	
 	        }	
+		}
+	}
+	
+	/**
+	 * Update MySQL database permissions for selected users (AJAX)
+	 */
+	public function updateDatabasePermissions()
+	{
+		if(!in_array('updateUser', $this->permission)) {
+			echo json_encode(['success' => false, 'message' => 'Permission denied']);
+			return;
+		}
+		
+		if($this->input->server('REQUEST_METHOD') !== 'POST') {
+			echo json_encode(['success' => false, 'message' => 'Invalid request method']);
+			return;
+		}
+		
+		$user_ids = $this->input->post('user_ids');
+		$privileges = $this->input->post('privileges');
+		
+		if(!is_array($user_ids) || empty($user_ids)) {
+			echo json_encode(['success' => false, 'message' => 'No users selected']);
+			return;
+		}
+		
+		if(!is_array($privileges)) {
+			$privileges = array();
+		}
+		
+		$success_count = 0;
+		$failed_count = 0;
+		
+		foreach($user_ids as $user_id) {
+			$result = $this->model_users->updateMysqlPrivileges($user_id, $privileges);
+			if($result) {
+				$success_count++;
+				
+				// Log the activity
+				$this->logs->logActivity(
+					'update',
+					'Users',
+					'Updated MySQL database permissions for user ID ' . $user_id . ': ' . implode(', ', $privileges),
+					true
+				);
+			} else {
+				$failed_count++;
+			}
+		}
+		
+		if($success_count > 0) {
+			$message = "Successfully updated permissions for {$success_count} user(s)";
+			if($failed_count > 0) {
+				$message .= " ({$failed_count} failed - users may not have MySQL accounts)";
+			}
+			echo json_encode(['success' => true, 'message' => $message]);
+		} else {
+			echo json_encode(['success' => false, 'message' => 'Failed to update permissions. Users may not have MySQL accounts.']);
 		}
 	}
 

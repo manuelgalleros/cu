@@ -158,6 +158,24 @@
     font-size: 1rem !important;
   }
 }
+
+/* Dynamic Sidebar Styles - Light/Dark Mode */
+.sidebar-dynamic {
+  background-color: #CC1C02;
+  transition: background-color 0.3s ease;
+}
+
+.sidebar-nav-dynamic {
+  background-color: #CC1C02;
+  padding-bottom: 0;
+  transition: background-color 0.3s ease;
+}
+
+/* Dark mode styles */
+[data-bs-theme="dark"] .sidebar-dynamic,
+[data-bs-theme="dark"] .sidebar-nav-dynamic {
+  background-color: #1a1d1f;
+}
 </style>
 
   </head>

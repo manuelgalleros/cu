@@ -220,7 +220,7 @@ public function signin()
                         'timestamp' => date('Y-m-d H:i:s')
                     ]);
                     
-                    $response['message'] = 'Login failed. Please check your credentials and ensure you have Admin affiliation.';
+                    $response['message'] = 'Login failed. Please check your credentials.';
                 }
             } else {
                 $response['message'] = 'Email does not exist';
@@ -301,7 +301,7 @@ public function signin()
                 
                 redirect('dashboard', 'refresh');
             } else {
-                $this->data['errors'][] = 'Login failed. Please check your credentials and ensure you have Admin affiliation.';
+                $this->data['errors'][] = 'Login failed. Please check your credentials.';
                 
                 // Log failed login attempt
                 $this->model_logs->create([

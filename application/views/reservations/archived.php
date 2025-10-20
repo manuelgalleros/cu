@@ -42,6 +42,22 @@
                                   Restore
                                 </a>
                               </li>
+                              <?php if ($is_admin): ?>
+                              <li><hr class="dropdown-divider"></li>
+                              <li>
+                                <a class="dropdown-item text-danger" href="#!" id="deleteAction">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-trash me-2" width="16" height="16" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                    <path d="M4 7l16 0"></path>
+                                    <path d="M10 11l0 6"></path>
+                                    <path d="M14 11l0 6"></path>
+                                    <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"></path>
+                                    <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"></path>
+                                  </svg>
+                                  Delete Permanently
+                                </a>
+                              </li>
+                              <?php endif; ?>
                             </ul>
                           </div>
                           <a href="<?php echo base_url('reservations'); ?>" class="btn btn-outline-secondary">
@@ -163,6 +179,47 @@
                   <path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path>
                 </svg>
                 Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete Confirmation Modal -->
+      <div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header bg-danger-subtle">
+              <h5 class="modal-title">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-alert-triangle me-2" width="24" height="24" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                  <path d="M12 9v4"></path>
+                  <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path>
+                  <path d="M12 16h.01"></path>
+                </svg>
+                Confirm Permanent Deletion
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="alert alert-warning" role="alert">
+                <strong>Warning!</strong> This action cannot be undone.
+              </div>
+              <p class="mb-0">Are you sure you want to permanently delete <strong id="deleteCount">0</strong> reservation(s)?</p>
+              <p class="text-muted small mt-2 mb-0">The reservation data will be moved to a deleted records table and cannot be recovered from the archived list.</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-trash me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                  <path d="M4 7l16 0"></path>
+                  <path d="M10 11l0 6"></path>
+                  <path d="M14 11l0 6"></path>
+                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"></path>
+                  <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"></path>
+                </svg>
+                Delete Permanently
               </button>
             </div>
           </div>
@@ -460,6 +517,71 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => {
             console.error('Error restoring reservations:', error);
             showAlert('An error occurred while restoring. Please try again.', 'danger');
+            
+            // Re-enable button
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = originalHTML;
+        });
+    });
+    
+    // Delete Action
+    let selectedIdsForDelete = [];
+    
+    document.getElementById('deleteAction').addEventListener('click', function(e) {
+        e.preventDefault();
+        const reservationCheckboxes = document.querySelectorAll('.reservation-checkbox');
+        const checked = Array.from(reservationCheckboxes).filter(cb => cb.checked);
+        if (checked.length === 0) {
+            showAlert('Please select at least one reservation to delete', 'danger');
+            return;
+        }
+        
+        // Store selected IDs and show count in modal
+        selectedIdsForDelete = checked.map(cb => cb.value);
+        document.getElementById('deleteCount').textContent = selectedIdsForDelete.length;
+        
+        // Show the confirmation modal
+        new bootstrap.Modal(document.getElementById('deleteConfirmModal')).show();
+    });
+    
+    // Confirm Delete Button Handler
+    document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        const confirmBtn = this;
+        const originalHTML = confirmBtn.innerHTML;
+        
+        // Disable button and show loading state
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deleting...';
+        
+        fetch('<?php echo base_url(); ?>reservations/deleteReservationPermanently', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'ids=' + JSON.stringify(selectedIdsForDelete)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Hide modal
+                bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal')).hide();
+                
+                // Show success message
+                showAlert(data.message, 'success');
+                
+                // Refresh table without full page reload
+                setTimeout(() => {
+                    refreshTableData();
+                }, 500);
+            } else {
+                showAlert(data.message, 'danger');
+                
+                // Re-enable button
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = originalHTML;
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting reservations:', error);
+            showAlert('An error occurred while deleting. Please try again.', 'danger');
             
             // Re-enable button
             confirmBtn.disabled = false;

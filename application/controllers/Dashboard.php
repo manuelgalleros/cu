@@ -23,6 +23,16 @@ class Dashboard extends Admin_Controller
 	public function index()
 	{
         $user_id = $this->session->userdata('id');
+		$user_affiliation = $this->session->userdata('affiliation');
+		$is_admin = ($user_id == 1 || strtolower($user_affiliation) == 'admin');
+		
+		// Restrict access to admin only
+		if (!$is_admin) {
+			$this->session->set_flashdata('error', 'Access denied. You do not have permission to view the dashboard.');
+			redirect('reservations/create', 'refresh');
+			return;
+		}
+		
 		$this->data['total_users'] = $this->model_users->countTotalUsers();
 		
 		// Get recent activities for dashboard
